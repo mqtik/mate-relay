@@ -50,7 +50,7 @@ func main() {
 
 	registry := tunnel.NewRegistry()
 	tunnelHandler := tunnel.NewHandler(registry, db)
-	adminHandler := admin.NewHandler(db, registry)
+	adminHandler := admin.NewHandler(db, registry, cfg.ControlHost)
 
 	mux := http.NewServeMux()
 

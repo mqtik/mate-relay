@@ -25,7 +25,7 @@ func newTestHandler(t *testing.T) *Handler {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return NewHandler(db, tunnel.NewRegistry())
+	return NewHandler(db, tunnel.NewRegistry(), "tunnel.mate.iwwwan.com")
 }
 
 func TestCreateAndListCodes(t *testing.T) {
@@ -91,8 +91,8 @@ func TestRedeemCode(t *testing.T) {
 
 	var redeemResp map[string]any
 	json.Unmarshal(w2.Body.Bytes(), &redeemResp)
-	if redeemResp["token"] == nil || redeemResp["macId"] == nil {
-		t.Fatalf("expected token and macId, got %v", redeemResp)
+	if redeemResp["deviceToken"] == nil || redeemResp["macId"] == nil || redeemResp["tunnelUrl"] == nil || redeemResp["relayHost"] == nil {
+		t.Fatalf("expected deviceToken, macId, tunnelUrl, relayHost, got %v", redeemResp)
 	}
 }
 

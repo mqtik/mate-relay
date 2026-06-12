@@ -1,0 +1,7 @@
+.env
+data/
+certs/
+*.db
+*.db-shm
+*.db-wal
+/mate-relay

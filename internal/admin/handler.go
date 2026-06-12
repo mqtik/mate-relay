@@ -10,12 +10,13 @@ import (
 )
 
 type Handler struct {
-	DB       *storage.DB
-	Registry *tunnel.Registry
+	DB          *storage.DB
+	Registry    *tunnel.Registry
+	ControlHost string
 }
 
-func NewHandler(db *storage.DB, reg *tunnel.Registry) *Handler {
-	return &Handler{DB: db, Registry: reg}
+func NewHandler(db *storage.DB, reg *tunnel.Registry, controlHost string) *Handler {
+	return &Handler{DB: db, Registry: reg, ControlHost: controlHost}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -154,8 +155,10 @@ func (h *Handler) Redeem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"deviceId": dev.ID,
-		"macId":    dev.MacID,
-		"token":    token,
+		"deviceId":    dev.ID,
+		"macId":       dev.MacID,
+		"deviceToken": token,
+		"tunnelUrl":   "wss://" + h.ControlHost + "/tunnel/control",
+		"relayHost":   dev.MacID + "." + h.ControlHost,
 	})
 }
