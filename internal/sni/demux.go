@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"log"
 	"net"
-	"strings"
 	"time"
 
 	vhost "github.com/inconshreveable/go-vhost"
@@ -41,7 +40,7 @@ func (d *Demux) handle(raw net.Conn) {
 	raw.SetDeadline(time.Time{})
 
 	switch {
-	case sni == d.ControlHost || sni == "" || strings.HasSuffix(sni, "."+d.ControlHost):
+	case sni == d.ControlHost || sni == "":
 		if d.TLSConfig != nil {
 			upgraded := tls.Server(tlsConn, d.TLSConfig)
 			if d.OnControl != nil {
