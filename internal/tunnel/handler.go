@@ -113,7 +113,7 @@ func (h *Handler) ServeStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	netConn := websocket.NetConn(r.Context(), wsConn, websocket.MessageBinary)
+	netConn := websocket.NetConn(context.Background(), wsConn, websocket.MessageBinary)
 
 	if err := h.Registry.AcceptStream(streamID, netConn); err != nil {
 		wsConn.Close(websocket.StatusPolicyViolation, "unknown stream")
