@@ -1,0 +1,15 @@
+services:
+  relay:
+    image: ${RELAY_IMAGE:-ghcr.io/mqtik/mate-relay:latest}
+    restart: unless-stopped
+    mem_limit: 256m
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./data:/data
+      - ./certs:/certs
+    env_file: .env
+    environment:
+      - DATA_DIR=/data
+      - CERT_DIR=/certs
