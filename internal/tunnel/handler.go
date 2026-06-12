@@ -2,12 +2,15 @@ package tunnel
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -20,12 +23,26 @@ type ctlMsg struct {
 }
 
 type Handler struct {
-	Registry *Registry
-	DB       *storage.DB
+	Registry      *Registry
+	DB            *storage.DB
+	ControlHost   string
+	previewClient *http.Client
 }
 
-func NewHandler(reg *Registry, db *storage.DB) *Handler {
-	return &Handler{Registry: reg, DB: db}
+func NewHandler(reg *Registry, db *storage.DB, controlHost string) *Handler {
+	return &Handler{
+		Registry:    reg,
+		DB:          db,
+		ControlHost: controlHost,
+		previewClient: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
+				MaxIdleConnsPerHost: 8,
+				IdleConnTimeout:     90 * time.Second,
+			},
+			Timeout: 60 * time.Second,
+		},
+	}
 }
 
 func (h *Handler) ServeControl(w http.ResponseWriter, r *http.Request) {
@@ -166,4 +183,80 @@ func ContextWithDevice(ctx context.Context, dev *storage.Device) context.Context
 func deviceFromContext(ctx context.Context) (*storage.Device, bool) {
 	dev, ok := ctx.Value(deviceContextKey).(*storage.Device)
 	return dev, ok && dev != nil
+}
+
+var blockedPreviewResponseHeaders = map[string]bool{
+	"transfer-encoding": true,
+	"connection":        true,
+	"keep-alive":        true,
+}
+
+func (h *Handler) ServePreview(w http.ResponseWriter, r *http.Request) {
+	// URL: /tunnel/preview/{macId}/{port}/{path...}
+	// After http.StripPrefix("/tunnel/preview"), r.URL.Path = "/{macId}/{port}/..."
+	trimmed := strings.TrimPrefix(r.URL.Path, "/")
+	parts := strings.SplitN(trimmed, "/", 3)
+	if len(parts) < 2 {
+		http.Error(w, "bad path: expected /macId/port/...", http.StatusBadRequest)
+		return
+	}
+	macId := parts[0]
+	portStr := parts[1]
+	subPath := "/"
+	if len(parts) == 3 && parts[2] != "" {
+		subPath = "/" + parts[2]
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 1 || port > 65535 {
+		http.Error(w, "invalid port", http.StatusBadRequest)
+		return
+	}
+
+	if !h.Registry.IsOnline(macId) {
+		http.Error(w, "device offline", http.StatusBadGateway)
+		return
+	}
+
+	dev, dbErr := h.DB.GetDeviceByMacID(macId)
+
+	targetURL := fmt.Sprintf("https://%s.%s/api/mate/v1/web-preview-relay/%d%s",
+		macId, h.ControlHost, port, subPath)
+	if r.URL.RawQuery != "" {
+		targetURL += "?" + r.URL.RawQuery
+	}
+
+	proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, r.Body)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	for k, vs := range r.Header {
+		if strings.ToLower(k) == "host" {
+			continue
+		}
+		proxyReq.Header[k] = vs
+	}
+	proxyReq.Header.Set("X-Mate-Request", "1")
+	if dbErr == nil {
+		proxyReq.Header.Set("X-Device-Fingerprint", dev.Fingerprint)
+	}
+
+	resp, err := h.previewClient.Do(proxyReq)
+	if err != nil {
+		log.Printf("preview proxy %s:%d%s: %v", macId, port, subPath, err)
+		http.Error(w, "device unreachable", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	for k, vs := range resp.Header {
+		if blockedPreviewResponseHeaders[strings.ToLower(k)] {
+			continue
+		}
+		w.Header()[k] = vs
+	}
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }

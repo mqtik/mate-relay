@@ -50,7 +50,7 @@ func main() {
 	defer db.Close()
 
 	registry := tunnel.NewRegistry()
-	tunnelHandler := tunnel.NewHandler(registry, db)
+	tunnelHandler := tunnel.NewHandler(registry, db, cfg.ControlHost)
 	adminHandler := admin.NewHandler(db, registry, cfg.ControlHost)
 
 	mux := http.NewServeMux()
@@ -62,6 +62,9 @@ func main() {
 	)
 	mux.Handle("GET /tunnel/stream",
 		http.HandlerFunc(tunnelHandler.ServeStream),
+	)
+	mux.Handle("/tunnel/preview/",
+		http.StripPrefix("/tunnel/preview", http.HandlerFunc(tunnelHandler.ServePreview)),
 	)
 
 	adminMux := http.NewServeMux()

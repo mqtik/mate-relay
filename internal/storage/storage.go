@@ -302,6 +302,30 @@ func (d *DB) ValidateToken(token string) (*Device, error) {
 	return d.GetDeviceByTokenHash(hash)
 }
 
+func (d *DB) GetDeviceByMacID(macID string) (*Device, error) {
+	var dev Device
+	var createdAt, lastSeenAt int64
+	var revokedAt sql.NullInt64
+	err := d.db.QueryRow(
+		`SELECT id, fingerprint, mac_id, name, created_at, last_seen_at, revoked_at
+		 FROM devices WHERE mac_id = ? AND revoked_at IS NULL`,
+		macID,
+	).Scan(&dev.ID, &dev.Fingerprint, &dev.MacID, &dev.Name, &createdAt, &lastSeenAt, &revokedAt)
+	if err == sql.ErrNoRows {
+		return nil, errors.New("device not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	dev.CreatedAt = time.Unix(createdAt, 0)
+	dev.LastSeenAt = time.Unix(lastSeenAt, 0)
+	if revokedAt.Valid {
+		t := time.Unix(revokedAt.Int64, 0)
+		dev.RevokedAt = &t
+	}
+	return &dev, nil
+}
+
 func (d *DB) UpdateLastSeen(deviceID string) error {
 	_, err := d.db.Exec(`UPDATE devices SET last_seen_at = ? WHERE id = ?`, time.Now().Unix(), deviceID)
 	return err
