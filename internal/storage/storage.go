@@ -307,6 +307,34 @@ func (d *DB) UpdateLastSeen(deviceID string) error {
 	return err
 }
 
+func (d *DB) ListDevices() ([]Device, error) {
+	rows, err := d.db.Query(
+		`SELECT id, fingerprint, mac_id, name, created_at, last_seen_at, revoked_at
+		 FROM devices ORDER BY created_at DESC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var devs []Device
+	for rows.Next() {
+		var dev Device
+		var createdAt, lastSeenAt int64
+		var revokedAt sql.NullInt64
+		if err := rows.Scan(&dev.ID, &dev.Fingerprint, &dev.MacID, &dev.Name, &createdAt, &lastSeenAt, &revokedAt); err != nil {
+			return nil, err
+		}
+		dev.CreatedAt = time.Unix(createdAt, 0)
+		dev.LastSeenAt = time.Unix(lastSeenAt, 0)
+		if revokedAt.Valid {
+			t := time.Unix(revokedAt.Int64, 0)
+			dev.RevokedAt = &t
+		}
+		devs = append(devs, dev)
+	}
+	return devs, rows.Err()
+}
+
 func (d *DB) RevokeDevice(id string) error {
 	res, err := d.db.Exec(
 		`UPDATE devices SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`,

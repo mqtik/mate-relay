@@ -14,6 +14,7 @@ type Config struct {
 	CertDir           string
 	ControlHost       string
 	AdminBearerSecret string
+	AdminUIPassword   string
 	DeviceTokenSecret string
 	CodeHashPepper    string
 	LEEmail           string
@@ -34,6 +35,7 @@ func Load() (*Config, error) {
 	}
 	cfg.Dev, _ = strconv.ParseBool(getEnv("DEV", "false"))
 	cfg.AdminBearerSecret = os.Getenv("ADMIN_BEARER_SECRET")
+	cfg.AdminUIPassword = os.Getenv("ADMIN_UI_PASSWORD")
 	cfg.DeviceTokenSecret = os.Getenv("DEVICE_TOKEN_SECRET")
 	cfg.CodeHashPepper = os.Getenv("CODE_HASH_PEPPER")
 	cfg.LEEmail = os.Getenv("LETSENCRYPT_EMAIL")

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/mqtik/mate-relay/internal/admin"
+	"github.com/mqtik/mate-relay/internal/adminui"
 	"github.com/mqtik/mate-relay/internal/auth"
 	"github.com/mqtik/mate-relay/internal/config"
 	"github.com/mqtik/mate-relay/internal/sni"
@@ -70,6 +71,12 @@ func main() {
 	adminMux.HandleFunc("DELETE /admin/devices/{id}", adminHandler.RevokeDevice)
 
 	mux.Handle("/admin/", auth.AdminMiddleware(cfg.AdminBearerSecret, adminMux))
+
+	if cfg.AdminUIPassword != "" {
+		ui := adminui.NewHandler(db, registry, cfg.AdminUIPassword)
+		ui.Mount(mux)
+		log.Printf("Admin UI enabled at /add")
+	}
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

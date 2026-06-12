@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>mate relay</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0e0e10;color:#e2e2e5;min-height:100vh;padding:32px 16px}
+h1{font-size:18px;font-weight:600;letter-spacing:-.3px;color:#fff;margin-bottom:32px}
+h1 span{color:#6c6c72;font-weight:400}
+h2{font-size:13px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;color:#6c6c72;margin-bottom:12px}
+section{max-width:720px;margin-bottom:40px}
+.card{background:#18181b;border:1px solid #27272a;border-radius:10px;padding:20px}
+.row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+input,select{background:#09090b;border:1px solid #3f3f46;border-radius:6px;color:#e2e2e5;font-size:13px;padding:8px 10px;outline:none;transition:border .15s}
+input:focus,select:focus{border-color:#6366f1}
+input[type=text]{width:200px}
+select{width:120px}
+button{border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;padding:8px 14px;transition:opacity .15s}
+button:active{opacity:.8}
+.btn-primary{background:#6366f1;color:#fff}
+.btn-primary:hover{background:#4f51cc}
+.btn-danger{background:transparent;color:#f87171;border:1px solid #3f3f46;padding:5px 10px;font-size:12px}
+.btn-danger:hover{border-color:#f87171}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:#6c6c72;font-weight:500;padding:0 8px 10px;font-size:12px}
+td{padding:10px 8px;border-top:1px solid #27272a;vertical-align:middle}
+.badge{display:inline-block;border-radius:4px;font-size:11px;font-weight:600;padding:2px 7px;letter-spacing:.3px}
+.badge-ok{background:#14532d;color:#4ade80}
+.badge-used{background:#1c1917;color:#78716c}
+.badge-expired{background:#1c1917;color:#78716c}
+.badge-revoked{background:#3b0f0f;color:#f87171}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle}
+.dot-on{background:#4ade80;box-shadow:0 0 6px #4ade8088}
+.dot-off{background:#3f3f46}
+.code-flash{font-family:ui-monospace,monospace;background:#09090b;border:1px solid #6366f1;border-radius:6px;padding:10px 14px;font-size:15px;letter-spacing:2px;color:#a5b4fc;margin-top:14px;display:flex;align-items:center;gap:10px}
+.code-flash button{background:transparent;border:1px solid #3f3f46;color:#a5b4fc;padding:4px 10px;font-size:11px}
+.code-flash button:hover{border-color:#a5b4fc}
+.flash-note{font-size:12px;color:#6c6c72;margin-top:6px}
+.empty{color:#6c6c72;font-size:13px;padding:16px 8px}
+#toast{position:fixed;bottom:24px;right:24px;background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:10px 16px;font-size:13px;color:#e2e2e5;opacity:0;transition:opacity .25s;pointer-events:none}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+<h1>mate-relay <span>/ admin</span></h1>
+
+<section>
+  <h2>New invite code</h2>
+  <div class="card">
+    <div class="row">
+      <input id="label" type="text" placeholder="Label (optional)" autocomplete="off">
+      <select id="ttl">
+        <option value="1h">1 hour</option>
+        <option value="24h" selected>24 hours</option>
+        <option value="168h">7 days</option>
+        <option value="720h">30 days</option>
+      </select>
+      <button class="btn-primary" onclick="createCode()">Generate</button>
+    </div>
+    <div id="new-code" style="display:none">
+      <div class="code-flash">
+        <span id="new-code-text"></span>
+        <button onclick="copyCode()">Copy</button>
+      </div>
+      <div class="flash-note">Copy it now — it won't be shown again.</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Invite codes</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>Label</th><th>Status</th><th>Expires</th><th></th></tr></thead>
+      <tbody id="codes-body"><tr><td class="empty" colspan="4">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>Enrolled devices</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>Name</th><th>Relay ID</th><th>Online</th><th>Last seen</th><th></th></tr></thead>
+      <tbody id="devices-body"><tr><td class="empty" colspan="5">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</section>
+
+<div id="toast"></div>
+
+<script>
+var base = '/add';
+
+function toast(msg) {
+  var el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(function(){ el.classList.remove('show'); }, 2200);
+}
+
+function relTime(unix) {
+  if (!unix) return '—';
+  var d = new Date(unix * 1000), now = new Date();
+  var diff = Math.round((d - now) / 1000);
+  var abs = Math.abs(diff);
+  if (abs < 60) return diff > 0 ? 'in <1m' : 'just now';
+  if (abs < 3600) return diff > 0 ? 'in ' + Math.round(abs/60) + 'm' : Math.round(abs/60) + 'm ago';
+  if (abs < 86400) return diff > 0 ? 'in ' + Math.round(abs/3600) + 'h' : Math.round(abs/3600) + 'h ago';
+  return diff > 0 ? 'in ' + Math.round(abs/86400) + 'd' : Math.round(abs/86400) + 'd ago';
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function badge(c) {
+  if (c.revoked) return '<span class="badge badge-revoked">revoked</span>';
+  if (c.used) return '<span class="badge badge-used">used</span>';
+  if (c.expiresAt * 1000 < Date.now()) return '<span class="badge badge-expired">expired</span>';
+  return '<span class="badge badge-ok">active</span>';
+}
+
+function loadCodes() {
+  fetch(base + '/codes').then(function(r){ return r.json(); }).then(function(codes){
+    var tbody = document.getElementById('codes-body');
+    if (!codes || !codes.length) {
+      tbody.innerHTML = '<tr><td class="empty" colspan="4">No codes yet.</td></tr>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < codes.length; i++) {
+      var c = codes[i];
+      var canRevoke = !c.revoked && !c.used && c.expiresAt * 1000 > Date.now();
+      html += '<tr id="c-' + esc(c.id) + '">' +
+        '<td>' + esc(c.label || '—') + '</td>' +
+        '<td>' + badge(c) + '</td>' +
+        '<td>' + relTime(c.expiresAt) + '</td>' +
+        '<td>' + (canRevoke ? '<button class="btn-danger" onclick="revokeCode(\'' + esc(c.id) + '\')">Revoke</button>' : '') + '</td>' +
+        '</tr>';
+    }
+    tbody.innerHTML = html;
+  });
+}
+
+function loadDevices() {
+  fetch(base + '/devices').then(function(r){ return r.json(); }).then(function(devs){
+    var tbody = document.getElementById('devices-body');
+    if (!devs || !devs.length) {
+      tbody.innerHTML = '<tr><td class="empty" colspan="5">No enrolled devices.</td></tr>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < devs.length; i++) {
+      var d = devs[i];
+      html += '<tr id="d-' + esc(d.id) + '">' +
+        '<td>' + esc(d.name || '—') + '</td>' +
+        '<td style="font-family:monospace;font-size:12px;color:#6c6c72">' + esc(d.macId) + '</td>' +
+        '<td><span class="dot ' + (d.online ? 'dot-on' : 'dot-off') + '"></span>' + (d.online ? 'Online' : 'Offline') + '</td>' +
+        '<td>' + relTime(d.lastSeenAt) + '</td>' +
+        '<td>' + (d.revoked ? '<span style="color:#6c6c72;font-size:12px">revoked</span>' : '<button class="btn-danger" onclick="revokeDevice(\'' + esc(d.id) + '\')">Revoke</button>') + '</td>' +
+        '</tr>';
+    }
+    tbody.innerHTML = html;
+  });
+}
+
+function createCode() {
+  var label = document.getElementById('label').value.trim();
+  var ttl = document.getElementById('ttl').value;
+  fetch(base + '/codes', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({label: label, ttl: ttl})
+  }).then(function(r){
+    if (!r.ok) { r.text().then(function(t){ toast('Error: ' + t); }); return; }
+    return r.json();
+  }).then(function(data){
+    if (!data) return;
+    document.getElementById('new-code-text').textContent = data.code;
+    document.getElementById('new-code').style.display = 'block';
+    document.getElementById('label').value = '';
+    loadCodes();
+  });
+}
+
+function revokeCode(id) {
+  if (!confirm('Revoke this code?')) return;
+  fetch(base + '/codes/' + id, {method: 'DELETE'}).then(function(){
+    toast('Code revoked');
+    loadCodes();
+  });
+}
+
+function revokeDevice(id) {
+  if (!confirm('Revoke this device? It will no longer be able to connect.')) return;
+  fetch(base + '/devices/' + id, {method: 'DELETE'}).then(function(){
+    toast('Device revoked');
+    loadDevices();
+  });
+}
+
+function copyCode() {
+  var code = document.getElementById('new-code-text').textContent;
+  navigator.clipboard.writeText(code).then(function(){ toast('Copied!'); });
+}
+
+loadCodes();
+loadDevices();
+setInterval(loadDevices, 15000);
+</script>
+</body>
+</html>
