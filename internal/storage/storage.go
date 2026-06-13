@@ -221,26 +221,6 @@ func (d *DB) RedeemCode(plaintext, fingerprint, deviceName string) (*Device, str
 		return nil, "", err
 	}
 
-	deviceID, err := randomHex(16)
-	if err != nil {
-		return nil, "", err
-	}
-
-	var macID string
-	for {
-		macID, err = randomHex(6)
-		if err != nil {
-			return nil, "", err
-		}
-		var exists int
-		if scanErr := tx.QueryRow(`SELECT COUNT(*) FROM devices WHERE mac_id = ?`, macID).Scan(&exists); scanErr != nil {
-			return nil, "", scanErr
-		}
-		if exists == 0 {
-			break
-		}
-	}
-
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return nil, "", err
@@ -248,12 +228,55 @@ func (d *DB) RedeemCode(plaintext, fingerprint, deviceName string) (*Device, str
 	deviceToken := hex.EncodeToString(tokenBytes)
 	tokenHash := hmacHex(deviceToken, d.deviceSecret)
 
-	_, err = tx.Exec(
-		`INSERT INTO devices (id, fingerprint, mac_id, name, token_hash, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		deviceID, fingerprint, macID, deviceName, tokenHash, now.Unix(), now.Unix(),
-	)
-	if err != nil {
-		return nil, "", fmt.Errorf("insert device: %w", err)
+	var deviceID, macID string
+	var deviceCreatedAt time.Time
+
+	var existingID, existingMacID string
+	var existingCreatedAt int64
+	lookupErr := tx.QueryRow(
+		`SELECT id, mac_id, created_at FROM devices WHERE fingerprint = ? ORDER BY created_at DESC LIMIT 1`,
+		fingerprint,
+	).Scan(&existingID, &existingMacID, &existingCreatedAt)
+
+	if lookupErr != nil && lookupErr != sql.ErrNoRows {
+		return nil, "", fmt.Errorf("lookup existing device: %w", lookupErr)
+	}
+
+	if existingMacID != "" {
+		deviceID = existingID
+		macID = existingMacID
+		deviceCreatedAt = time.Unix(existingCreatedAt, 0)
+		if _, err = tx.Exec(
+			`UPDATE devices SET token_hash = ?, name = ?, revoked_at = NULL, last_seen_at = ? WHERE id = ?`,
+			tokenHash, deviceName, now.Unix(), deviceID,
+		); err != nil {
+			return nil, "", fmt.Errorf("update device: %w", err)
+		}
+	} else {
+		deviceID, err = randomHex(16)
+		if err != nil {
+			return nil, "", err
+		}
+		deviceCreatedAt = now
+		for {
+			macID, err = randomHex(6)
+			if err != nil {
+				return nil, "", err
+			}
+			var exists int
+			if scanErr := tx.QueryRow(`SELECT COUNT(*) FROM devices WHERE mac_id = ?`, macID).Scan(&exists); scanErr != nil {
+				return nil, "", scanErr
+			}
+			if exists == 0 {
+				break
+			}
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO devices (id, fingerprint, mac_id, name, token_hash, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			deviceID, fingerprint, macID, deviceName, tokenHash, now.Unix(), now.Unix(),
+		); err != nil {
+			return nil, "", fmt.Errorf("insert device: %w", err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -267,7 +290,7 @@ func (d *DB) RedeemCode(plaintext, fingerprint, deviceName string) (*Device, str
 		Fingerprint: fingerprint,
 		MacID:       macID,
 		Name:        deviceName,
-		CreatedAt:   now,
+		CreatedAt:   deviceCreatedAt,
 		LastSeenAt:  now,
 	}
 	return dev, deviceToken, nil
